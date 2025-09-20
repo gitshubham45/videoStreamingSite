@@ -1,11 +1,67 @@
 package controllers
 
-import "github.com/gin-gonic/gin"
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 
-func UploadController(c *gin.Context){
-	
+	"github.com/gin-gonic/gin"
+)
+
+func UploadController(c *gin.Context) {
+	err := c.Request.ParseMultipartForm(1000 << 20)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse Form"})
+	}
+
+	file, header, err := c.Request.FormFile("video")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No Video file uploaded"})
+	}
+	defer file.Close()
+
+	ext := filepath.Ext(header.Filename)
+	allowedExts := map[string]bool{
+		".mp4":  true,
+		".mov":  true,
+		".avi":  true,
+		".mkv":  true,
+		".webm": true,
+	}
+
+	if !allowedExts[ext] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Only video file allowed"})
+		return
+	}
+
+	os.Mkdir("../uploads", os.ModePerm)
+
+	filename := fmt.Sprintf("../uploads/%s", header.Filename)
+
+	dst, err := os.Create(filename)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create file"})
+		return
+	}
+	defer dst.Close()
+
+	// copy uploaded file to destination
+	_, err = io.Copy(dst, file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "Video uploaded successfully",
+		"filename": header.Filename,
+		"path":     filename,
+	})
+
 }
 
-func WatchController(c *gin.Context){
+func WatchController(c *gin.Context) {
 
 }
