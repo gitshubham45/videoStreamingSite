@@ -1,29 +1,16 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
-import Home from './pages/HomePage';
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import HomePage from './pages/HomePage';
+import UploadPage from './pages/UploadPage';
+import WatchPage from './pages/WatchPage';
 
-// The main App component that renders the homepage with two buttons.
 const App = () => {
-  const [currentView, setCurrentView] = useState('home');
-
-  const renderView = () => {
-    switch (currentView) {
-      case 'upload':
-        return <UploadPage onViewChange={setCurrentView} />;
-      case 'watch':
-        return <WatchPage onViewChange={setCurrentView} />;
-      case 'home':
-      default:
-        return <HomePage onViewChange={setCurrentView} />;
-    }
-  };
-
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/about" element={<Home />} />
-        {/* <Route path="contact" element={<ContactPage />} /> */}
+        <Route path="/" element={<HomePage />} />
+        <Route path="/watch" element={<WatchPage />} />
+        <Route path="/upload" element={<UploadPage />} />
       </Routes>
     </BrowserRouter>
   );
