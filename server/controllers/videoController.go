@@ -36,9 +36,9 @@ func UploadController(c *gin.Context) {
 		return
 	}
 
-	os.Mkdir("../uploads", os.ModePerm)
+	os.Mkdir("./uploads", os.ModePerm)
 
-	filename := fmt.Sprintf("../uploads/%s", header.Filename)
+	filename := fmt.Sprintf("./uploads/%s", header.Filename)
 
 	dst, err := os.Create(filename)
 	if err != nil {

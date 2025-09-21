@@ -6,15 +6,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gitshubham45/videoStreamingSite/server/controllers"
+	"github.com/gitshubham45/videoStreamingSite/server/database"
 	"github.com/rs/cors"
 )
 
 func main() {
+	database.InitDB()
+
 	r := gin.Default()
 
 	api := r.Group("/api")
 
 	api.POST("/upload", controllers.UploadController)
+	api.GET("/watch", controllers.WatchController)
 
 	handler := cors.New(cors.Options{
 		AllowedOrigins: []string{"http://localhost:3000"},
