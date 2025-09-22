@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gitshubham45/videoStreamingSite/server/database"
+	"github.com/google/uuid"
 )
 
 func UploadController(c *gin.Context) {
@@ -29,6 +32,20 @@ func UploadController(c *gin.Context) {
 		".avi":  true,
 		".mkv":  true,
 		".webm": true,
+	}
+
+	err = database.InsertVideo(database.Video{
+		ID:               uuid.New().String(),
+		OriginalFilename: header.Filename,
+		StoredFilename:   header.Filename,
+		URL:              "url",
+		UploadedAt:       time.Now(),
+		FileSize:         5,
+		MimeType:         "video",
+	})
+
+	if err != nil {
+		fmt.Println("Error while daving video metadata in db")
 	}
 
 	if !allowedExts[ext] {
