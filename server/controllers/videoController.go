@@ -76,7 +76,6 @@ func UploadController(c *gin.Context) {
 		"filename": header.Filename,
 		"path":     filename,
 	})
-
 }
 
 func WatchController(c *gin.Context) {

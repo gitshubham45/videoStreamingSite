@@ -14,13 +14,14 @@ type Video struct {
 
 func InsertVideo(video Video) error {
 	query := `
-		INSERT INTO videos (original_filename , stored_filename, url , file_size, mime_type)
-		VALUES($1,$2,$3,$4,$5)
+		INSERT INTO videos (id , original_filename , stored_filename, url , file_size, mime_type)
+		VALUES($1,$2,$3,$4,$5,$6)
 		RETURNING id,uploaded_at
 	`
 
 	err := DB.QueryRow(
 		query,
+		video.ID,
 		video.OriginalFilename,
 		video.StoredFilename,
 		video.URL,

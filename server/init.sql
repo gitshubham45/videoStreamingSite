@@ -2,7 +2,7 @@
 \c video-streaming-db
 
 CREATE TABLE IF NOT EXISTS videos (
-    id SERIAL PRIMARY KEY,
+    id VARCHAR(255) PRIMARY KEY,
     original_filename TEXT NOT NULL,
     stored_filename TEXT NOT NULL UNIQUE,
     url TEXT NOT NULL,
