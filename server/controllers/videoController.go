@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gitshubham45/videoStreamingSite/server/database"
+	service "github.com/gitshubham45/videoStreamingSite/server/services"
 	"github.com/google/uuid"
 )
 
@@ -55,12 +56,15 @@ func UploadController(c *gin.Context) {
 	}
 
 	go func() {
-		successedResolution, failedResoultion := service.TranscodeService()
+		successedResolution, failedResoultion := service.TranscodeService(inputFilePath, outputDir, fileNameWithoutExt)
+		fmt.Printf("Transcoding completed for %s.\n", fileNameWithoutExt)
+		fmt.Println("Success: ", successedResolution)
+		fmt.Println("Failed: ", failedResoultion)
 	}()
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "Video uploaded successfully , transcoding in progress",
-		"resoultions": service.Resoulution,
+		"resoultions": service.Resoulutions,
 		"filename":    fileName,
 	})
 }

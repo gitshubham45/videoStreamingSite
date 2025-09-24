@@ -18,26 +18,49 @@ var Resoulutions = []string{
 	"144p",
 }
 
-func TranscodeService(inputFilePath, outputDir, fileNameWithoutExt string) (successfulResults, failedResults []models.TranscodeResult) {
+func TranscodeService(inputFilePath, outputDir, fileNameWithoutExt string) (successfulResults, failedResolutions []models.TranscodeResult) {
 	var (
 		sem = make(chan struct{}, 2) // semaphore to limit concurrent transcoding
 		wg  sync.WaitGroup
 		mu  sync.Mutex
 	)
 
-	for _ , resolution := range Resoulutions {
+	for _, resolution := range Resoulutions {
 		sem <- struct{}{}
 		wg.Add(1)
 
-		go func(resName string){
+		go func(resolution string) {
 			defer func() {
 				<-sem
 				wg.Done()
 			}()
 
-			outputFile := filepath.Join(outputDir , fmt.Sprintf("%s_%s.mp4",fileNameWithoutExt , resName))
+			outputFile := filepath.Join(outputDir, fmt.Sprintf("%s_%s.mp4", fileNameWithoutExt, resolution))
 
-			smd := exec.Command("server/")
-		}
+			cmd := exec.Command("/server/transcode.sh", inputFilePath, resolution, outputFile)
+			fmt.Println("Running command:", cmd.String())
+			cmdOutput, err := cmd.CombinedOutput()
+			if err != nil {
+				mu.Lock()
+				failedResolutions = append(failedResolutions, models.TranscodeResult{
+					Resolution: resolution,
+					Err:        fmt.Sprintf("Error transcoding %s: %v, output: %s\n", resolution, err, string(cmdOutput)),
+					Success:    false,
+				})
+				mu.Unlock()
+			}else{
+				fmt.Printf("Successfully transcoded to %s\n" , resolution)
+				mu.Lock()
+				successfulResults = append(successfulResults, models.TranscodeResult{
+					Resolution: resolution,
+					OutputPath: outputFile,
+					Success: true,
+				})
+				mu.Unlock()
+			}
+		}(resolution)
 	}
+
+	wg.Wait()
+	return successfulResults , failedResolutions
 }
