@@ -48,8 +48,8 @@ func UploadController(c *gin.Context) {
 	})
 
 	fileNameWithoutExt := strings.TrimSuffix(fileName, filepath.Ext(fileName))
-	outputDir := filepath.Join("/server/uploads", fmt.Sprintf("%s_output", fileNameWithoutExt))
-	err = os.Mkdir(outputDir, os.ModePerm)
+	outputDir := filepath.Join("./server/uploads", fmt.Sprintf("%s_output", fileNameWithoutExt))
+	err = os.MkdirAll(outputDir, os.ModePerm)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create folder %s [error: %s]", outputDir, err.Error())})
 		return

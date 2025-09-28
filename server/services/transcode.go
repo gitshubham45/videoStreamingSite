@@ -25,6 +25,8 @@ func TranscodeService(inputFilePath, outputDir, fileNameWithoutExt string) (succ
 		mu  sync.Mutex
 	)
 
+	fmt.Println("Inside transcode func")
+
 	for _, resolution := range Resoulutions {
 		sem <- struct{}{}
 		wg.Add(1)
@@ -37,7 +39,7 @@ func TranscodeService(inputFilePath, outputDir, fileNameWithoutExt string) (succ
 
 			outputFile := filepath.Join(outputDir, fmt.Sprintf("%s_%s.mp4", fileNameWithoutExt, resolution))
 
-			cmd := exec.Command("/server/transcode.sh", inputFilePath, resolution, outputFile)
+			cmd := exec.Command("./server/transcode.sh", inputFilePath, resolution, outputFile)
 			fmt.Println("Running command:", cmd.String())
 			cmdOutput, err := cmd.CombinedOutput()
 			if err != nil {
