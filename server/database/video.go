@@ -27,9 +27,7 @@ func InsertVideo(video Video) error {
 		video.URL,
 		video.FileSize,
 		video.MimeType,
-	).Scan(&video.ID , &video.UploadedAt)
+	).Scan(&video.ID, &video.UploadedAt)
 
 	return err
 }
-
-

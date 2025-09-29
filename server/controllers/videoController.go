@@ -12,6 +12,7 @@ import (
 	"github.com/gitshubham45/videoStreamingSite/server/database"
 	service "github.com/gitshubham45/videoStreamingSite/server/services"
 	"github.com/google/uuid"
+
 )
 
 func UploadController(c *gin.Context) {
@@ -21,7 +22,7 @@ func UploadController(c *gin.Context) {
 	}
 
 	fileName := file.Filename
-	inputFilePath := filepath.Join("/server/uploads", fileName)
+	inputFilePath := filepath.Join("./uploads", fileName)
 
 	ext := filepath.Ext(fileName)
 	allowedExts := map[string]bool{
@@ -37,6 +38,12 @@ func UploadController(c *gin.Context) {
 		return
 	}
 
+	err = c.SaveUploadedFile(file, inputFilePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
+		return
+	}
+
 	err = database.InsertVideo(database.Video{
 		ID:               uuid.New().String(),
 		OriginalFilename: fileName,
@@ -47,8 +54,14 @@ func UploadController(c *gin.Context) {
 		MimeType:         "video",
 	})
 
+	if err != nil {
+		fmt.Println("Error : ", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error saving video file metadata in DB"})
+		return
+	}
+
 	fileNameWithoutExt := strings.TrimSuffix(fileName, filepath.Ext(fileName))
-	outputDir := filepath.Join("./server/uploads", fmt.Sprintf("%s_output", fileNameWithoutExt))
+	outputDir := filepath.Join("./videos", fmt.Sprintf("%s_output", fileNameWithoutExt))
 	err = os.MkdirAll(outputDir, os.ModePerm)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create folder %s [error: %s]", outputDir, err.Error())})

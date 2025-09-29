@@ -39,7 +39,7 @@ func TranscodeService(inputFilePath, outputDir, fileNameWithoutExt string) (succ
 
 			outputFile := filepath.Join(outputDir, fmt.Sprintf("%s_%s.mp4", fileNameWithoutExt, resolution))
 
-			cmd := exec.Command("./server/transcode.sh", inputFilePath, resolution, outputFile)
+			cmd := exec.Command("scripts/transcode.sh", inputFilePath, resolution, outputFile)
 			fmt.Println("Running command:", cmd.String())
 			cmdOutput, err := cmd.CombinedOutput()
 			if err != nil {
@@ -50,13 +50,13 @@ func TranscodeService(inputFilePath, outputDir, fileNameWithoutExt string) (succ
 					Success:    false,
 				})
 				mu.Unlock()
-			}else{
-				fmt.Printf("Successfully transcoded to %s\n" , resolution)
+			} else {
+				fmt.Printf("Successfully transcoded to %s\n", resolution)
 				mu.Lock()
 				successfulResults = append(successfulResults, models.TranscodeResult{
 					Resolution: resolution,
 					OutputPath: outputFile,
-					Success: true,
+					Success:    true,
 				})
 				mu.Unlock()
 			}
@@ -64,5 +64,5 @@ func TranscodeService(inputFilePath, outputDir, fileNameWithoutExt string) (succ
 	}
 
 	wg.Wait()
-	return successfulResults , failedResolutions
+	return successfulResults, failedResolutions
 }
