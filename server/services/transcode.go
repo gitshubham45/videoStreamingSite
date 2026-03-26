@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/gitshubham45/videoStreamingSite/server/logger"
 	"github.com/gitshubham45/videoStreamingSite/server/models"
+	"go.uber.org/zap"
 )
 
 var Resoulutions = []string{
@@ -25,7 +27,7 @@ func TranscodeService(inputFilePath, outputDir, fileNameWithoutExt string) (succ
 		mu  sync.Mutex
 	)
 
-	fmt.Println("Inside transcode func")
+	logger.Log.Info("[TRANSCODE] Starting transcoding", zap.String("file", fileNameWithoutExt))
 
 	for _, resolution := range Resoulutions {
 		sem <- struct{}{}
@@ -37,25 +39,38 @@ func TranscodeService(inputFilePath, outputDir, fileNameWithoutExt string) (succ
 				wg.Done()
 			}()
 
-			outputFile := filepath.Join(outputDir, fmt.Sprintf("%s_%s.mp4", fileNameWithoutExt, resolution))
+			// Each resolution gets its own subdirectory: <outputDir>/<resolution>/
+			resolutionDir := filepath.Join(outputDir, resolution)
+			playlistPath := filepath.Join(resolutionDir, "index.m3u8")
 
-			cmd := exec.Command("scripts/transcode.sh", inputFilePath, resolution, outputFile)
-			fmt.Println("Running command:", cmd.String())
+			cmd := exec.Command("scripts/transcode.sh", inputFilePath, resolution, resolutionDir)
+			logger.Log.Info("[TRANSCODE] Running",
+				zap.String("resolution", resolution),
+				zap.String("output_dir", resolutionDir),
+			)
 			cmdOutput, err := cmd.CombinedOutput()
 			if err != nil {
+				logger.Log.Error("[TRANSCODE] Failed",
+					zap.String("resolution", resolution),
+					zap.Error(err),
+					zap.String("output", string(cmdOutput)),
+				)
 				mu.Lock()
 				failedResolutions = append(failedResolutions, models.TranscodeResult{
 					Resolution: resolution,
-					Err:        fmt.Sprintf("Error transcoding %s: %v, output: %s\n", resolution, err, string(cmdOutput)),
+					Err:        fmt.Sprintf("%v: %s", err, string(cmdOutput)),
 					Success:    false,
 				})
 				mu.Unlock()
 			} else {
-				fmt.Printf("Successfully transcoded to %s\n", resolution)
+				logger.Log.Info("[TRANSCODE] Done",
+					zap.String("resolution", resolution),
+					zap.String("playlist", playlistPath),
+				)
 				mu.Lock()
 				successfulResults = append(successfulResults, models.TranscodeResult{
 					Resolution: resolution,
-					OutputPath: outputFile,
+					OutputPath: playlistPath,
 					Success:    true,
 				})
 				mu.Unlock()

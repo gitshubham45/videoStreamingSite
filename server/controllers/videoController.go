@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,15 +11,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gitshubham45/videoStreamingSite/server/database"
+	"github.com/gitshubham45/videoStreamingSite/server/logger"
+	"github.com/gitshubham45/videoStreamingSite/server/queue"
 	service "github.com/gitshubham45/videoStreamingSite/server/services"
 	"github.com/google/uuid"
-
+	"go.uber.org/zap"
 )
 
 func UploadController(c *gin.Context) {
 	file, err := c.FormFile("video")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse Form"})
+		logger.Log.Error("[UPLOAD] Failed to parse form", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse form"})
+		return
 	}
 
 	fileName := file.Filename
@@ -31,32 +36,25 @@ func UploadController(c *gin.Context) {
 		".avi":  true,
 		".mkv":  true,
 		".webm": true,
+		".MOV":  true,
 	}
 
 	if !allowedExts[ext] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Only video file allowed"})
+		logger.Log.Warn("[UPLOAD] Rejected unsupported file type",
+			zap.String("filename", fileName),
+			zap.String("ext", ext),
+		)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Only video files are allowed"})
 		return
 	}
 
 	err = c.SaveUploadedFile(file, inputFilePath)
 	if err != nil {
+		logger.Log.Error("[UPLOAD] Failed to save file",
+			zap.String("filename", fileName),
+			zap.Error(err),
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
-		return
-	}
-
-	err = database.InsertVideo(database.Video{
-		ID:               uuid.New().String(),
-		OriginalFilename: fileName,
-		StoredFilename:   fileName,
-		URL:              "url",
-		UploadedAt:       time.Now(),
-		FileSize:         5,
-		MimeType:         "video",
-	})
-
-	if err != nil {
-		fmt.Println("Error : ", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error saving video file metadata in DB"})
 		return
 	}
 
@@ -64,24 +62,96 @@ func UploadController(c *gin.Context) {
 	outputDir := filepath.Join("./videos", fmt.Sprintf("%s_output", fileNameWithoutExt))
 	err = os.MkdirAll(outputDir, os.ModePerm)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create folder %s [error: %s]", outputDir, err.Error())})
+		logger.Log.Error("[UPLOAD] Failed to create output directory",
+			zap.String("dir", outputDir),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create folder %s: %s", outputDir, err.Error())})
 		return
 	}
 
-	go func() {
-		successedResolution, failedResoultion := service.TranscodeService(inputFilePath, outputDir, fileNameWithoutExt)
-		fmt.Printf("Transcoding completed for %s.\n", fileNameWithoutExt)
-		fmt.Println("Success: ", successedResolution)
-		fmt.Println("Failed: ", failedResoultion)
-	}()
+	// Store relative path (without leading "./") so it matches the static file URL
+	relativeOutputDir := fmt.Sprintf("videos/%s_output", fileNameWithoutExt)
+	videoID := uuid.New().String()
+	err = database.InsertVideo(database.Video{
+		ID:               videoID,
+		OriginalFilename: fileName,
+		StoredFilename:   fileName,
+		URL:              relativeOutputDir,
+		UploadedAt:       time.Now(),
+		FileSize:         file.Size,
+		MimeType:         file.Header.Get("Content-Type"),
+		Status:           "pending",
+	})
+	if err != nil {
+		logger.Log.Error("[UPLOAD] Failed to insert video metadata",
+			zap.String("filename", fileName),
+			zap.Error(err),
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error saving video file metadata in DB"})
+		return
+	}
+
+	job := queue.TranscodeJob{
+		VideoID:            videoID,
+		InputFilePath:      inputFilePath,
+		OutputDir:          outputDir,
+		FilenameWithoutExt: fileNameWithoutExt,
+	}
+	if err := queue.Publish(c.Request.Context(), job); err != nil {
+		logger.Log.Error("[UPLOAD] Failed to publish transcode job", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to queue transcoding job"})
+		return
+	}
+
+	logger.Log.Info("[UPLOAD] File received, job queued", zap.String("filename", fileName), zap.String("video_id", videoID))
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":     "Video uploaded successfully , transcoding in progress",
-		"resoultions": service.Resoulutions,
-		"filename":    fileName,
+		"message":  "Video uploaded successfully, transcoding in progress",
+		"video_id": videoID,
+		"filename": fileName,
 	})
 }
 
-func WatchController(c *gin.Context) {
+func ListVideosController(c *gin.Context) {
+	videos, err := database.GetAllVideos()
+	if err != nil {
+		logger.Log.Error("[LIST] Failed to fetch videos", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch videos"})
+		return
+	}
+	if videos == nil {
+		videos = []database.Video{}
+	}
+	c.JSON(http.StatusOK, gin.H{"videos": videos})
+}
 
+func WatchController(c *gin.Context) {
+	videoId := c.Param("video_id")
+	logger.Log.Info("[WATCH] Request received", zap.String("video_id", videoId))
+
+	video, err := database.GetVideoByID(videoId)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Video not found"})
+		return
+	}
+	if err != nil {
+		logger.Log.Error("[WATCH] Failed to fetch video", zap.String("video_id", videoId), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch video"})
+		return
+	}
+
+	// Build HLS playlist URLs — one per resolution that has been transcoded
+	resolutions := map[string]string{}
+	for _, r := range service.Resoulutions {
+		playlistPath := fmt.Sprintf("%s/%s/index.m3u8", video.URL, r)
+		if _, statErr := os.Stat("./" + playlistPath); statErr == nil {
+			resolutions[r] = "http://localhost:8000/" + playlistPath
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"video":       video,
+		"resolutions": resolutions,
+	})
 }

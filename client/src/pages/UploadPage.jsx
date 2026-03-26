@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -6,40 +6,37 @@ const UploadPage = () => {
     const navigate = useNavigate();
     const [selectedFile, setSelectedFile] = useState(null);
     const [uploadStatus, setUploadStatus] = useState(""); // "", "uploading", "success", "error"
+    const [dragOver, setDragOver] = useState(false);
+    const fileInputRef = useRef(null);
 
-    const handleFileChange = (event) => {
-        setSelectedFile(event.target.files[0]);
-        // Reset status when new file is selected
+    const handleFileChange = (file) => {
+        if (!file) return;
+        setSelectedFile(file);
         setUploadStatus("");
     };
 
-    const handleUpload = async () => {
-        if (!selectedFile) {
-            console.log("No file selected.");
-            return;
-        }
+    const handleDrop = (e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const file = e.dataTransfer.files[0];
+        if (file) handleFileChange(file);
+    };
 
+    const handleUpload = async () => {
+        if (!selectedFile) return;
         setUploadStatus("uploading");
 
         const formData = new FormData();
-        formData.append("video", selectedFile); // Make sure your Go backend expects field name "video"
+        formData.append("video", selectedFile);
 
         try {
             const response = await axios.post("http://localhost:8000/api/upload", formData, {
-                headers: {
-                    "Content-Type": "multipart/form-data",
-                },
+                headers: { "Content-Type": "multipart/form-data" },
             });
-
             console.log("Upload successful:", response.data);
             setUploadStatus("success");
-            setSelectedFile(null); // Clear file after success
-
-            // Optional: Auto-redirect after success
-            setTimeout(() => {
-                navigate("/");
-            }, 1500); // Redirect after 1.5s to let user see success message
-
+            setSelectedFile(null);
+            setTimeout(() => navigate("/"), 1500);
         } catch (error) {
             console.error("Upload failed:", error.response?.data || error.message);
             setUploadStatus("error");
@@ -47,50 +44,92 @@ const UploadPage = () => {
     };
 
     return (
-        <div className="bg-white p-8 rounded-2xl shadow-xl flex flex-col items-center space-y-6 max-w-sm w-full">
-            <h2 className="text-2xl font-bold text-gray-800">
-                Upload a Video
-            </h2>
-            <p className="text-gray-600 text-center">
-                Select a video file to upload.
-            </p>
-            <input
-                type="file"
-                accept="video/*"
-                onChange={handleFileChange}
-                className="w-full text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                disabled={uploadStatus === "uploading"} // Disable during upload
-            />
-            {selectedFile && (
-                <p className="text-sm text-gray-500 mt-2">
-                    Selected file: <span className="font-semibold text-gray-800">{selectedFile.name}</span>
-                </p>
-            )}
+        <div className="min-h-screen bg-gray-950 text-white flex flex-col">
+            {/* Navbar */}
+            <nav className="px-8 py-5 flex items-center border-b border-gray-800">
+                <button
+                    onClick={() => navigate("/")}
+                    className="text-gray-400 hover:text-white transition text-sm flex items-center gap-2"
+                >
+                    <span>←</span> Back
+                </button>
+                <span className="mx-auto text-xl font-bold tracking-tight">
+                    stream<span className="text-violet-500">vault</span>
+                </span>
+            </nav>
 
-            {/* Upload Status Messages */}
-            {uploadStatus === "uploading" && (
-                <p className="text-blue-500 font-medium">Uploading...</p>
-            )}
-            {uploadStatus === "success" && (
-                <p className="text-green-600 font-semibold">Upload successful!</p>
-            )}
-            {uploadStatus === "error" && (
-                <p className="text-red-500 font-semibold">Upload failed. Please try again.</p>
-            )}
+            {/* Content */}
+            <div className="flex-1 flex items-center justify-center px-4 py-12">
+                <div className="w-full max-w-lg">
+                    <h2 className="text-3xl font-bold mb-2 text-white">Upload a Video</h2>
+                    <p className="text-gray-400 mb-8 text-sm">
+                        Supported formats: MP4, MOV, AVI, MKV, WebM
+                    </p>
 
-            <button
-                onClick={handleUpload}
-                className="w-full bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl shadow-md hover:bg-blue-700 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                disabled={!selectedFile || uploadStatus === "uploading"}
-            >
-                {uploadStatus === "uploading" ? "Uploading..." : "Upload"}
-            </button>
-            <button
-                className="w-full bg-gray-400 text-white font-semibold py-3 px-6 rounded-xl shadow-md hover:bg-gray-500 transition duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-opacity-50"
-                onClick={() => navigate("/")} // Fixed: was onViewChange
-            >
-                Go Back
-            </button>
+                    {/* Drop zone */}
+                    <div
+                        onClick={() => fileInputRef.current?.click()}
+                        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                        onDragLeave={() => setDragOver(false)}
+                        onDrop={handleDrop}
+                        className={`border-2 border-dashed rounded-2xl p-12 flex flex-col items-center justify-center cursor-pointer transition mb-6
+                            ${dragOver
+                                ? "border-violet-500 bg-violet-500/10"
+                                : "border-gray-700 hover:border-gray-500 bg-gray-900"
+                            }`}
+                    >
+                        <div className="text-4xl mb-3">🎬</div>
+                        {selectedFile ? (
+                            <>
+                                <p className="text-white font-semibold text-sm">{selectedFile.name}</p>
+                                <p className="text-gray-500 text-xs mt-1">
+                                    {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-gray-300 font-medium">Drop your video here</p>
+                                <p className="text-gray-500 text-sm mt-1">or click to browse</p>
+                            </>
+                        )}
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="video/*"
+                            className="hidden"
+                            onChange={(e) => handleFileChange(e.target.files[0])}
+                            disabled={uploadStatus === "uploading"}
+                        />
+                    </div>
+
+                    {/* Status */}
+                    {uploadStatus === "uploading" && (
+                        <div className="mb-4 flex items-center gap-3 text-violet-400 text-sm">
+                            <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin" />
+                            Uploading and queuing for transcoding…
+                        </div>
+                    )}
+                    {uploadStatus === "success" && (
+                        <p className="mb-4 text-green-400 text-sm font-medium">
+                            ✓ Upload successful! Transcoding has started.
+                        </p>
+                    )}
+                    {uploadStatus === "error" && (
+                        <p className="mb-4 text-red-400 text-sm font-medium">
+                            ✗ Upload failed. Please try again.
+                        </p>
+                    )}
+
+                    {/* Actions */}
+                    <button
+                        onClick={handleUpload}
+                        disabled={!selectedFile || uploadStatus === "uploading"}
+                        className="w-full bg-violet-600 hover:bg-violet-700 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition"
+                    >
+                        {uploadStatus === "uploading" ? "Uploading…" : "Upload Video"}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 };

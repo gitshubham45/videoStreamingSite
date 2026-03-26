@@ -3,23 +3,22 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 
+	"github.com/gitshubham45/videoStreamingSite/server/logger"
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq" // PostgreSQL driver (blank import for side-effect)
+	_ "github.com/lib/pq"
+	"go.uber.org/zap"
 )
 
 var DB *sql.DB
 
 func InitDB() {
-	// Load .env file (optional)
 	err := godotenv.Load()
 	if err != nil {
-		log.Println("⚠️  No .env file found, using system environment variables")
+		logger.Log.Warn("[DB] No .env file found, using system environment variables")
 	}
 
-	// Build connection string
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		getEnv("DB_HOST", "localhost"),
@@ -30,19 +29,17 @@ func InitDB() {
 		getEnv("DB_SSLMODE", "disable"),
 	)
 
-	// Open DB connection
 	DB, err = sql.Open("postgres", connStr)
 	if err != nil {
-		log.Fatal("❌ Failed to open database: ", err)
+		logger.Log.Fatal("[DB] Failed to open database", zap.Error(err))
 	}
 
-	// Test connection
 	err = DB.Ping()
 	if err != nil {
-		log.Fatal("❌ Failed to ping database: ", err)
+		logger.Log.Fatal("[DB] Failed to ping database", zap.Error(err))
 	}
 
-	fmt.Println("✅ Successfully connected to PostgreSQL!")
+	logger.Log.Info("[DB] Connected to PostgreSQL")
 }
 
 func getEnv(key string, fallback ...string) string {
@@ -52,6 +49,6 @@ func getEnv(key string, fallback ...string) string {
 	if len(fallback) > 0 {
 		return fallback[0]
 	}
-	log.Fatal("❌ Required environment variable not set: ", key)
+	logger.Log.Fatal("[DB] Required environment variable not set", zap.String("key", key))
 	return ""
 }
