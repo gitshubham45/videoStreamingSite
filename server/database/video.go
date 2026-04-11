@@ -60,6 +60,11 @@ func GetAllVideos() ([]Video, error) {
 	return videos, rows.Err()
 }
 
+func DeleteVideo(id string) error {
+	_, err := DB.Exec(`DELETE FROM videos WHERE id = $1`, id)
+	return err
+}
+
 func GetVideoByID(id string) (Video, error) {
 	var v Video
 	err := DB.QueryRow(`

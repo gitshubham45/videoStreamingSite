@@ -2,25 +2,34 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
-const VideoCard = ({ video, onClick }) => (
-    <div className="group cursor-pointer" onClick={onClick}>
-        <div className="bg-gray-800 rounded-xl aspect-video flex items-center justify-center mb-3 overflow-hidden group-hover:ring-2 group-hover:ring-violet-500 transition">
-            <span className="text-gray-500 text-4xl group-hover:text-violet-400 transition">▶</span>
-        </div>
-        <div className="flex gap-3">
-            <div className="w-8 h-8 rounded-full bg-violet-700 flex-shrink-0 flex items-center justify-center text-xs font-bold">
-                V
+const VideoCard = ({ video, onClick, onDelete }) => (
+    <div className="group relative">
+        <div className="cursor-pointer" onClick={onClick}>
+            <div className="bg-gray-800 rounded-xl aspect-video flex items-center justify-center mb-3 overflow-hidden group-hover:ring-2 group-hover:ring-violet-500 transition">
+                <span className="text-gray-500 text-4xl group-hover:text-violet-400 transition">▶</span>
             </div>
-            <div>
-                <p className="text-white text-sm font-medium leading-snug line-clamp-2">
-                    {video.original_filename}
-                </p>
-                <p className="text-gray-500 text-xs mt-0.5">
-                    {(video.file_size / (1024 * 1024)).toFixed(2)} MB &middot;{" "}
-                    {new Date(video.uploaded_at).toLocaleDateString()}
-                </p>
+            <div className="flex gap-3 pr-8">
+                <div className="w-8 h-8 rounded-full bg-violet-700 flex-shrink-0 flex items-center justify-center text-xs font-bold">
+                    V
+                </div>
+                <div>
+                    <p className="text-white text-sm font-medium leading-snug line-clamp-2">
+                        {video.original_filename}
+                    </p>
+                    <p className="text-gray-500 text-xs mt-0.5">
+                        {(video.file_size / (1024 * 1024)).toFixed(2)} MB &middot;{" "}
+                        {new Date(video.uploaded_at).toLocaleDateString()}
+                    </p>
+                </div>
             </div>
         </div>
+        <button
+            onClick={(e) => { e.stopPropagation(); onDelete(video.id); }}
+            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-gray-900 border border-gray-700 text-gray-400 hover:bg-red-600 hover:border-red-600 hover:text-white transition flex items-center justify-center opacity-0 group-hover:opacity-100 text-xs"
+            title="Delete video"
+        >
+            ✕
+        </button>
     </div>
 );
 
@@ -37,6 +46,14 @@ const WatchPage = () => {
             .catch(() => setError("Failed to load videos"))
             .finally(() => setLoading(false));
     }, []);
+
+    const handleDelete = (id) => {
+        if (!window.confirm("Delete this video? This cannot be undone.")) return;
+        axios
+            .delete(`http://localhost:8000/api/videos/${id}`)
+            .then(() => setVideos((prev) => prev.filter((v) => v.id !== id)))
+            .catch(() => alert("Failed to delete video"));
+    };
 
     return (
         <div className="min-h-screen bg-gray-950 text-white flex flex-col">
@@ -93,6 +110,7 @@ const WatchPage = () => {
                                 key={v.id}
                                 video={v}
                                 onClick={() => navigate(`/watch/${v.id}`)}
+                                onDelete={handleDelete}
                             />
                         ))}
                     </div>

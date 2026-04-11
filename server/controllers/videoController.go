@@ -126,6 +126,42 @@ func ListVideosController(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"videos": videos})
 }
 
+func DeleteController(c *gin.Context) {
+	videoID := c.Param("video_id")
+
+	video, err := database.GetVideoByID(videoID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Video not found"})
+		return
+	}
+	if err != nil {
+		logger.Log.Error("[DELETE] Failed to fetch video", zap.String("video_id", videoID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch video"})
+		return
+	}
+
+	// Delete transcoded files
+	outputDir := "./" + video.URL
+	if err := os.RemoveAll(outputDir); err != nil {
+		logger.Log.Error("[DELETE] Failed to remove output dir", zap.String("dir", outputDir), zap.Error(err))
+	}
+
+	// Delete original upload
+	originalPath := filepath.Join("./uploads", video.StoredFilename)
+	if err := os.Remove(originalPath); err != nil && !os.IsNotExist(err) {
+		logger.Log.Error("[DELETE] Failed to remove original file", zap.String("path", originalPath), zap.Error(err))
+	}
+
+	if err := database.DeleteVideo(videoID); err != nil {
+		logger.Log.Error("[DELETE] Failed to delete from DB", zap.String("video_id", videoID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete video"})
+		return
+	}
+
+	logger.Log.Info("[DELETE] Video deleted", zap.String("video_id", videoID))
+	c.JSON(http.StatusOK, gin.H{"message": "Video deleted"})
+}
+
 func WatchController(c *gin.Context) {
 	videoId := c.Param("video_id")
 	logger.Log.Info("[WATCH] Request received", zap.String("video_id", videoId))

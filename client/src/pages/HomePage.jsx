@@ -10,12 +10,21 @@ const HomePage = () => {
                 <span className="text-xl font-bold tracking-tight text-white">
                     stream<span className="text-violet-500">vault</span>
                 </span>
-                <button
-                    onClick={() => navigate("/upload")}
-                    className="bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition"
-                >
-                    + Upload
-                </button>
+                <div className="flex gap-3">
+                    <button
+                        onClick={() => navigate("/live")}
+                        className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition flex items-center gap-2"
+                    >
+                        <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                        Live
+                    </button>
+                    <button
+                        onClick={() => navigate("/upload")}
+                        className="bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold px-5 py-2 rounded-lg transition"
+                    >
+                        + Upload
+                    </button>
+                </div>
             </nav>
 
             {/* Hero */}
@@ -29,7 +38,7 @@ const HomePage = () => {
                         Drop your video and we'll automatically transcode it to
                         multiple resolutions — ready to stream instantly.
                     </p>
-                    <div className="flex gap-4 justify-center">
+                    <div className="flex gap-4 justify-center flex-wrap">
                         <button
                             onClick={() => navigate("/upload")}
                             className="bg-violet-600 hover:bg-violet-700 text-white font-semibold px-8 py-3 rounded-xl transition text-base"
@@ -41,6 +50,13 @@ const HomePage = () => {
                             className="border border-gray-600 hover:border-gray-400 text-gray-300 hover:text-white font-semibold px-8 py-3 rounded-xl transition text-base"
                         >
                             Browse Videos
+                        </button>
+                        <button
+                            onClick={() => navigate("/live")}
+                            className="border border-red-700 hover:border-red-500 text-red-400 hover:text-red-300 font-semibold px-8 py-3 rounded-xl transition text-base flex items-center gap-2"
+                        >
+                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                            Go Live
                         </button>
                     </div>
                 </div>

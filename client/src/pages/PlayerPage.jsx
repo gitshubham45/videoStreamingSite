@@ -47,12 +47,12 @@ const PlayerPage = () => {
             hls.loadSource(src);
             hls.attachMedia(videoRef.current);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                videoRef.current.play();
+                videoRef.current?.play().catch(() => {});
             });
         } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
             // Native HLS support (Safari)
             videoRef.current.src = src;
-            videoRef.current.play();
+            videoRef.current.play().catch(() => {});
         }
 
         return () => {
@@ -68,7 +68,7 @@ const PlayerPage = () => {
         setSelectedRes(res);
         // Restore position after new stream loads
         const onManifest = () => {
-            videoRef.current.currentTime = currentTime;
+            if (videoRef.current) videoRef.current.currentTime = currentTime;
         };
         if (hlsRef.current) {
             hlsRef.current.once(Hls.Events.MANIFEST_PARSED, onManifest);
