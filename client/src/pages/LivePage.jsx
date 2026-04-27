@@ -1,55 +1,160 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { SIGNAL_URL } from "../config";
 
-// VP9 produces MSE-compatible WebM chunks; VP8 from MediaRecorder can include
-// non-standard elements that Chrome's own ChunkDemuxer rejects.
-const MIME = "video/webm; codecs=vp9,opus";
+const RTC_CONFIG = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+};
 
-// ─── Broadcaster ────────────────────────────────────────────────────────────
+const sendSignal = (ws, message) => {
+    if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(message));
+    }
+};
 
 const BroadcastView = () => {
     const previewRef = useRef(null);
     const wsRef = useRef(null);
-    const recorderRef = useRef(null);
+    const streamRef = useRef(null);
+    const peersRef = useRef(new Map());
     const [streaming, setStreaming] = useState(false);
+    const [viewerCount, setViewerCount] = useState(0);
+    const [audioMuted, setAudioMuted] = useState(false);
+    const [videoClosed, setVideoClosed] = useState(false);
     const [error, setError] = useState(null);
+
+    const closePeer = (viewerId) => {
+        const pc = peersRef.current.get(viewerId);
+        if (pc) {
+            pc.close();
+            peersRef.current.delete(viewerId);
+            setViewerCount(peersRef.current.size);
+        }
+    };
+
+    const createOfferForViewer = async (viewerId) => {
+        if (!streamRef.current || peersRef.current.has(viewerId)) return;
+
+        const pc = new RTCPeerConnection(RTC_CONFIG);
+        peersRef.current.set(viewerId, pc);
+        setViewerCount(peersRef.current.size);
+
+        streamRef.current.getTracks().forEach((track) => {
+            pc.addTrack(track, streamRef.current);
+        });
+
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                sendSignal(wsRef.current, {
+                    type: "candidate",
+                    viewerId,
+                    candidate: event.candidate,
+                });
+            }
+        };
+
+        pc.onconnectionstatechange = () => {
+            if (["closed", "failed", "disconnected"].includes(pc.connectionState)) {
+                closePeer(viewerId);
+            }
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal(wsRef.current, {
+            type: "offer",
+            viewerId,
+            sdp: pc.localDescription,
+        });
+    };
 
     const start = async () => {
         setError(null);
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            streamRef.current = stream;
             previewRef.current.srcObject = stream;
+            setAudioMuted(false);
+            setVideoClosed(false);
 
-            const ws = new WebSocket("ws://localhost:8000/ws/broadcast");
-            ws.binaryType = "arraybuffer";
+            const ws = new WebSocket(`${SIGNAL_URL}/ws/broadcast`);
             wsRef.current = ws;
 
-            ws.onopen = () => {
-                const recorder = new MediaRecorder(stream, { mimeType: MIME });
-                recorderRef.current = recorder;
-
-                recorder.ondataavailable = (e) => {
-                    if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-                        ws.send(e.data);
-                    }
-                };
-
-                recorder.start(200); // 200ms chunks for low latency
-                setStreaming(true);
+            ws.onopen = () => setStreaming(true);
+            ws.onerror = () => setError("WebSocket connection failed");
+            ws.onclose = () => {
+                setStreaming(false);
+                peersRef.current.forEach((pc) => pc.close());
+                peersRef.current.clear();
+                setViewerCount(0);
             };
 
-            ws.onerror = () => setError("WebSocket connection failed");
-        } catch (e) {
-            setError("Could not access webcam: " + e.message);
+            ws.onmessage = async (event) => {
+                const message = JSON.parse(event.data);
+
+                try {
+                    if (message.type === "viewer-joined") {
+                        await createOfferForViewer(message.viewerId);
+                    }
+
+                    if (message.type === "answer") {
+                        const pc = peersRef.current.get(message.viewerId);
+                        if (pc && message.sdp) {
+                            await pc.setRemoteDescription(new RTCSessionDescription(message.sdp));
+                        }
+                    }
+
+                    if (message.type === "candidate") {
+                        const pc = peersRef.current.get(message.viewerId);
+                        if (pc && message.candidate) {
+                            await pc.addIceCandidate(new RTCIceCandidate(message.candidate));
+                        }
+                    }
+
+                    if (message.type === "viewer-left") {
+                        closePeer(message.viewerId);
+                    }
+                } catch (err) {
+                    setError(`Broadcast signaling failed: ${err.message}`);
+                }
+            };
+        } catch (err) {
+            setError(`Could not access webcam: ${err.message}`);
         }
     };
 
     const stop = () => {
-        recorderRef.current?.stop();
-        recorderRef.current?.stream.getTracks().forEach((t) => t.stop());
+        peersRef.current.forEach((pc) => pc.close());
+        peersRef.current.clear();
+        setViewerCount(0);
+        setAudioMuted(false);
+        setVideoClosed(false);
+
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+
         wsRef.current?.close();
+        wsRef.current = null;
+
         if (previewRef.current) previewRef.current.srcObject = null;
         setStreaming(false);
+    };
+
+    const toggleAudio = () => {
+        const nextMuted = !audioMuted;
+        streamRef.current?.getAudioTracks().forEach((track) => {
+            track.enabled = !nextMuted;
+        });
+        setAudioMuted(nextMuted);
+    };
+
+    const toggleVideo = () => {
+        const nextClosed = !videoClosed;
+        streamRef.current?.getVideoTracks().forEach((track) => {
+            track.enabled = !nextClosed;
+        });
+        setVideoClosed(nextClosed);
     };
 
     useEffect(() => () => stop(), []);
@@ -70,9 +175,19 @@ const BroadcastView = () => {
                     </div>
                 )}
                 {streaming && (
-                    <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 px-3 py-1 rounded-full text-xs font-semibold text-white">
-                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                        LIVE
+                    <>
+                        <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/60 px-3 py-1 rounded-full text-xs font-semibold text-white">
+                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                            LIVE
+                        </div>
+                        <div className="absolute top-3 right-3 bg-black/60 px-3 py-1 rounded-full text-xs text-gray-300">
+                            viewers: {viewerCount}
+                        </div>
+                    </>
+                )}
+                {videoClosed && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black text-gray-300 text-sm pointer-events-none">
+                        Camera is off
                     </div>
                 )}
             </div>
@@ -94,140 +209,149 @@ const BroadcastView = () => {
                     Stop Streaming
                 </button>
             )}
+
+            {streaming && (
+                <div className="flex flex-wrap justify-center gap-3">
+                    <button
+                        onClick={toggleAudio}
+                        className={`px-5 py-2 rounded-lg text-sm font-semibold transition ${
+                            audioMuted
+                                ? "bg-yellow-600 hover:bg-yellow-700 text-white"
+                                : "bg-gray-800 hover:bg-gray-700 text-gray-100"
+                        }`}
+                    >
+                        {audioMuted ? "Unmute Mic" : "Mute Mic"}
+                    </button>
+                    <button
+                        onClick={toggleVideo}
+                        className={`px-5 py-2 rounded-lg text-sm font-semibold transition ${
+                            videoClosed
+                                ? "bg-yellow-600 hover:bg-yellow-700 text-white"
+                                : "bg-gray-800 hover:bg-gray-700 text-gray-100"
+                        }`}
+                    >
+                        {videoClosed ? "Open Camera" : "Close Camera"}
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
 
-// ─── Viewer ──────────────────────────────────────────────────────────────────
-
 const WatchView = () => {
     const videoRef = useRef(null);
     const wsRef = useRef(null);
-    const connIdRef = useRef(0);
-    const blobUrlRef = useRef(null);
+    const peerRef = useRef(null);
     const [connected, setConnected] = useState(false);
+    const [waiting, setWaiting] = useState(false);
     const [error, setError] = useState(null);
-    const [chunks, setChunks] = useState(0); // visible chunk counter
+
+    const resetPeer = () => {
+        peerRef.current?.close();
+        peerRef.current = null;
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
+        }
+    };
 
     const connect = () => {
         setError(null);
-        setChunks(0);
+        setWaiting(true);
+        setConnected(false);
+        resetPeer();
 
-        if (!MediaSource.isTypeSupported(MIME)) {
-            setError("Your browser does not support WebM/VP8 playback");
-            return;
-        }
+        const ws = new WebSocket(`${SIGNAL_URL}/ws/watch`);
+        wsRef.current = ws;
 
-        const id = ++connIdRef.current;
-        const alive = () => connIdRef.current === id;
+        ws.onerror = () => {
+            setError("Stream connection lost");
+            setWaiting(false);
+        };
 
-        // Reset the video element so sourceopen fires reliably on every connect
-        if (blobUrlRef.current) {
-            URL.revokeObjectURL(blobUrlRef.current);
-            blobUrlRef.current = null;
-            videoRef.current.removeAttribute("src");
-            videoRef.current.load();
-        }
+        ws.onclose = () => {
+            setConnected(false);
+            setWaiting(false);
+            resetPeer();
+        };
 
-        const ms = new MediaSource();
-        blobUrlRef.current = URL.createObjectURL(ms);
-        videoRef.current.src = blobUrlRef.current;
+        ws.onmessage = async (event) => {
+            const message = JSON.parse(event.data);
 
-        // Call play() NOW — while we're still inside the button click handler
-        // (user gesture context). Calling it later from async callbacks can be
-        // blocked by Chrome's autoplay policy.
-        videoRef.current.play().catch(() => {});
-
-        ms.addEventListener("sourceopen", () => {
-            console.log("[MSE] sourceopen, readyState:", ms.readyState);
-            if (!alive()) return;
-
-            const sb = ms.addSourceBuffer(MIME);
-            const queue = [];
-            let appendCount = 0;
-
-            const flush = () => {
-                if (!alive() || sb.updating || queue.length === 0 || ms.readyState !== "open") return;
-                try {
-                    const chunk = queue.shift();
-                    appendCount++;
-                    console.log(`[MSE] append #${appendCount} bytes=${chunk.byteLength} queued=${queue.length}`);
-                    sb.appendBuffer(chunk);
-                } catch (err) {
-                    console.error("[MSE] appendBuffer error:", err.name, err.message);
-                    if (err.name === "QuotaExceededError" && sb.buffered.length > 0) {
-                        const end = sb.buffered.end(sb.buffered.length - 1);
-                        sb.remove(sb.buffered.start(0), Math.max(0, end - 5));
-                    } else {
-                        setError("Stream decode error: " + err.name);
-                    }
-                }
-            };
-
-            sb.addEventListener("updateend", () => {
-                if (sb.buffered.length === 0) { flush(); return; }
-
-                const lastIdx = sb.buffered.length - 1;
-                const rangeStart = sb.buffered.start(lastIdx);
-                const liveEdge = sb.buffered.end(lastIdx);
-                const ct = videoRef.current.currentTime;
-                console.log(`[MSE] updateend ranges=${sb.buffered.length} last=[${rangeStart.toFixed(2)},${liveEdge.toFixed(2)}] ct=${ct.toFixed(2)} paused=${videoRef.current.paused}`);
-
-                // Keep viewer at live edge — jump if we've drifted or landed in a gap
-                if (liveEdge - ct > 2 || ct < rangeStart) {
-                    console.log(`[MSE] jump ${ct.toFixed(2)} → ${rangeStart.toFixed(2)}`);
-                    videoRef.current.currentTime = rangeStart;
+            try {
+                if (message.type === "no-broadcaster") {
+                    setWaiting(true);
+                    setError(null);
                 }
 
-                flush();
-            });
+                if (message.type === "broadcast-ended") {
+                    setWaiting(false);
+                    setConnected(false);
+                    resetPeer();
+                }
 
-            videoRef.current.addEventListener("error", () => {
-                const e = videoRef.current.error;
-                console.error("[VIDEO] error code:", e?.code, e?.message);
-                if (alive()) setError(`Video error (code ${e?.code})`);
-            });
-            videoRef.current.addEventListener("waiting",  () => console.log("[VIDEO] waiting at", videoRef.current.currentTime.toFixed(2)));
-            videoRef.current.addEventListener("playing",  () => console.log("[VIDEO] playing at", videoRef.current.currentTime.toFixed(2)));
-            videoRef.current.addEventListener("stalled",  () => console.log("[VIDEO] stalled at", videoRef.current.currentTime.toFixed(2)));
+                if (message.type === "offer") {
+                    resetPeer();
+                    const pc = new RTCPeerConnection(RTC_CONFIG);
+                    peerRef.current = pc;
 
-            const ws = new WebSocket("ws://localhost:8000/ws/watch");
-            ws.binaryType = "arraybuffer";
-            wsRef.current = ws;
+                    pc.ontrack = (trackEvent) => {
+                        videoRef.current.srcObject = trackEvent.streams[0];
+                        videoRef.current.play().catch(() => {});
+                        setConnected(true);
+                        setWaiting(false);
+                    };
 
-            ws.onopen = () => { if (alive()) setConnected(true); };
+                    pc.onicecandidate = (candidateEvent) => {
+                        if (candidateEvent.candidate) {
+                            sendSignal(wsRef.current, {
+                                type: "candidate",
+                                candidate: candidateEvent.candidate,
+                            });
+                        }
+                    };
 
-            ws.onmessage = (e) => {
-                if (!alive()) return;
-                const first4 = new Uint8Array(e.data, 0, 4);
-                const hex = Array.from(first4).map(b => b.toString(16).padStart(2, "0")).join("");
-                console.log(`[WS] chunk bytes=${e.data.byteLength} first4=0x${hex}`);
-                setChunks(n => n + 1);
-                queue.push(e.data);
-                flush();
-            };
+                    pc.onconnectionstatechange = () => {
+                        if (["closed", "failed", "disconnected"].includes(pc.connectionState)) {
+                            setConnected(false);
+                            setWaiting(false);
+                        }
+                    };
 
-            ws.onclose = (e) => {
-                console.log("[WS] closed code=", e.code);
-                if (!alive()) return;
-                queue.length = 0;
-                setConnected(false);
-                if (ms.readyState === "open") ms.endOfStream();
-            };
+                    await pc.setRemoteDescription(new RTCSessionDescription(message.sdp));
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    sendSignal(wsRef.current, {
+                        type: "answer",
+                        sdp: pc.localDescription,
+                    });
+                }
 
-            ws.onerror = () => { if (alive()) setError("Stream connection lost"); };
-        });
+                if (message.type === "candidate" && peerRef.current && message.candidate) {
+                    await peerRef.current.addIceCandidate(new RTCIceCandidate(message.candidate));
+                }
+            } catch (err) {
+                setWaiting(false);
+                setError(`Viewer signaling failed: ${err.message}`);
+            }
+        };
     };
 
     const disconnect = () => {
-        connIdRef.current++;
         wsRef.current?.close();
         wsRef.current = null;
+        resetPeer();
         setConnected(false);
-        setChunks(0);
+        setWaiting(false);
     };
 
-    useEffect(() => () => disconnect(), []);
+    useEffect(() => () => {
+        wsRef.current?.close();
+        peerRef.current?.close();
+        peerRef.current = null;
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
+        }
+    }, []);
 
     return (
         <div className="flex flex-col items-center gap-6">
@@ -236,11 +360,12 @@ const WatchView = () => {
                     ref={videoRef}
                     playsInline
                     controls
-                    className="w-full h-full"
+                    autoPlay
+                    className="w-full h-full object-contain"
                 />
                 {!connected && (
                     <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm pointer-events-none">
-                        Press Watch to join
+                        {waiting ? "Connecting..." : "Press Watch to join"}
                     </div>
                 )}
                 {connected && (
@@ -249,16 +374,11 @@ const WatchView = () => {
                         WATCHING LIVE
                     </div>
                 )}
-                {connected && (
-                    <div className="absolute top-3 right-3 bg-black/60 px-3 py-1 rounded-full text-xs text-gray-300">
-                        chunks: {chunks}
-                    </div>
-                )}
             </div>
 
             {error && <p className="text-red-400 text-sm">{error}</p>}
 
-            {!connected ? (
+            {!connected && !waiting ? (
                 <button
                     onClick={connect}
                     className="bg-violet-600 hover:bg-violet-700 text-white font-semibold px-8 py-3 rounded-xl transition"
@@ -276,8 +396,6 @@ const WatchView = () => {
         </div>
     );
 };
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 const LivePage = () => {
     const navigate = useNavigate();
@@ -299,7 +417,6 @@ const LivePage = () => {
             </nav>
 
             <div className="flex-1 max-w-3xl mx-auto w-full px-4 py-8">
-                {/* Tabs */}
                 <div className="flex gap-1 bg-gray-900 rounded-xl p-1 mb-8 w-fit mx-auto">
                     {["watch", "broadcast"].map((t) => (
                         <button

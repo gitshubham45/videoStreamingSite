@@ -20,10 +20,19 @@ type TranscodeJob struct {
 }
 
 func Init() {
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+		options, err := redis.ParseURL(redisURL)
+		if err == nil {
+			Client = redis.NewClient(options)
+			return
+		}
+	}
+
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {
 		addr = "localhost:6379"
 	}
+
 	Client = redis.NewClient(&redis.Options{Addr: addr})
 }
 

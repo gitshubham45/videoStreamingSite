@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -13,53 +14,42 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// BroadcastHandler accepts the single webcam source.
-// The first binary message is treated as the WebM init segment and cached.
 func BroadcastHandler(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		logger.Log.Error("[WS] Broadcast upgrade failed", zap.Error(err))
 		return
 	}
-	defer conn.Close()
 
+	client := GlobalHub.RegisterBroadcaster()
 	logger.Log.Info("[WS] Broadcaster connected")
 
-	GlobalHub.mu.Lock()
-	GlobalHub.isLive = true
-	GlobalHub.initSegment = nil
-	GlobalHub.mu.Unlock()
+	done := make(chan struct{})
+	go writeSignals(conn, client, done)
 
-	chunkCount := 0
-	first := true
+	defer func() {
+		GlobalHub.UnregisterBroadcaster(client)
+		conn.Close()
+		<-done
+		logger.Log.Info("[WS] Broadcaster disconnected")
+	}()
+
 	for {
+		var message SignalMessage
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			logger.Log.Error("[WS] Broadcast read error", zap.Error(err))
-			break
+			return
 		}
-		chunkCount++
-		if first {
-			GlobalHub.mu.Lock()
-			GlobalHub.initSegment = data
-			GlobalHub.mu.Unlock()
-			first = false
-			logger.Log.Info("[WS] Init segment cached", zap.Int("bytes", len(data)))
-		} else {
-			logger.Log.Info("[WS] Chunk received from broadcaster", zap.Int("chunk", chunkCount), zap.Int("bytes", len(data)))
+		if err := json.Unmarshal(data, &message); err != nil {
+			logger.Log.Error("[WS] Broadcast payload decode failed", zap.Error(err), zap.Int("bytes", len(data)))
+			continue
 		}
-		GlobalHub.broadcast <- data
+		logSignal("received", "broadcaster", client.id, message, len(data))
+		GlobalHub.FromBroadcaster(message)
 	}
-
-	GlobalHub.mu.Lock()
-	GlobalHub.isLive = false
-	GlobalHub.initSegment = nil
-	GlobalHub.mu.Unlock()
-
-	logger.Log.Info("[WS] Broadcaster disconnected")
 }
 
-// WatchHandler streams chunks to a viewer.
 func WatchHandler(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -67,31 +57,65 @@ func WatchHandler(c *gin.Context) {
 		return
 	}
 
-	viewer := &Viewer{send: make(chan []byte, 64)}
-	GlobalHub.register <- viewer
-	logger.Log.Info("[WS] Viewer connected", zap.String("remote", conn.RemoteAddr().String()))
+	client := GlobalHub.RegisterViewer()
+	logger.Log.Info("[WS] Viewer connected", zap.String("viewerID", client.id), zap.String("remote", conn.RemoteAddr().String()))
+
+	done := make(chan struct{})
+	go writeSignals(conn, client, done)
 
 	defer func() {
-		GlobalHub.unregister <- viewer
+		GlobalHub.UnregisterViewer(client)
 		conn.Close()
-		logger.Log.Info("[WS] Viewer disconnected", zap.String("remote", conn.RemoteAddr().String()))
+		<-done
+		logger.Log.Info("[WS] Viewer disconnected", zap.String("viewerID", client.id))
 	}()
 
-	sentCount := 0
-	for data := range viewer.send {
-		if err := conn.WriteMessage(websocket.BinaryMessage, data); err != nil {
-			logger.Log.Error("[WS] Viewer write error", zap.Error(err))
-			break
+	for {
+		var message SignalMessage
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return
 		}
-		sentCount++
-		logger.Log.Info("[WS] Chunk sent to viewer", zap.Int("chunk", sentCount), zap.Int("bytes", len(data)))
+		if err := json.Unmarshal(data, &message); err != nil {
+			logger.Log.Error("[WS] Watch payload decode failed", zap.Error(err), zap.String("viewerID", client.id), zap.Int("bytes", len(data)))
+			continue
+		}
+		logSignal("received", "viewer", client.id, message, len(data))
+		GlobalHub.FromViewer(client, message)
 	}
 }
 
-// StatusHandler returns whether a broadcast is currently live.
+func writeSignals(conn *websocket.Conn, client *Client, done chan<- struct{}) {
+	defer close(done)
+
+	for message := range client.send {
+		payload, err := json.Marshal(message)
+		if err != nil {
+			logger.Log.Error("[WS] Signal encode failed", zap.Error(err), zap.String("clientID", client.id))
+			continue
+		}
+		logSignal("sent", "server", client.id, message, len(payload))
+		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			return
+		}
+	}
+}
+
 func StatusHandler(c *gin.Context) {
-	GlobalHub.mu.RLock()
-	live := GlobalHub.isLive
-	GlobalHub.mu.RUnlock()
-	c.JSON(http.StatusOK, gin.H{"live": live})
+	c.JSON(http.StatusOK, gin.H{"live": GlobalHub.GetLive()})
+}
+
+func logSignal(direction string, role string, clientID string, message SignalMessage, bytes int) {
+	logger.Log.Info("[WS] Signal chunk",
+		zap.String("direction", direction),
+		zap.String("role", role),
+		zap.String("clientID", clientID),
+		zap.String("type", message.Type),
+		zap.String("viewerID", message.ViewerID),
+		zap.Bool("hasSDP", len(message.SDP) > 0),
+		zap.Int("sdpBytes", len(message.SDP)),
+		zap.Bool("hasCandidate", len(message.Candidate) > 0),
+		zap.Int("candidateBytes", len(message.Candidate)),
+		zap.Int("bytes", bytes),
+	)
 }

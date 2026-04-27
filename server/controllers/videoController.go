@@ -179,10 +179,11 @@ func WatchController(c *gin.Context) {
 
 	// Build HLS playlist URLs — one per resolution that has been transcoded
 	resolutions := map[string]string{}
+	publicURL := strings.TrimRight(getEnv("PUBLIC_URL", "http://localhost:8000"), "/")
 	for _, r := range service.Resoulutions {
 		playlistPath := fmt.Sprintf("%s/%s/index.m3u8", video.URL, r)
 		if _, statErr := os.Stat("./" + playlistPath); statErr == nil {
-			resolutions[r] = "http://localhost:8000/" + playlistPath
+			resolutions[r] = publicURL + "/" + playlistPath
 		}
 	}
 
@@ -190,4 +191,11 @@ func WatchController(c *gin.Context) {
 		"video":       video,
 		"resolutions": resolutions,
 	})
+}
+
+func getEnv(key string, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

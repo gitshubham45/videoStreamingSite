@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gitshubham45/videoStreamingSite/server/controllers"
@@ -40,11 +41,32 @@ func main() {
 	r.GET("/ws/watch", wshandler.WatchHandler)
 
 	handler := cors.New(cors.Options{
-		AllowedOrigins: []string{"http://localhost:3000"},
+		AllowedOrigins: allowedOrigins(),
 		AllowedMethods: []string{"GET", "POST", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"*"},
 	}).Handler(r)
 
-	logger.Log.Info("Server running", zap.String("addr", "http://localhost:8000"))
-	http.ListenAndServe(":8000", handler)
+	port := getEnv("PORT", "8000")
+	logger.Log.Info("Server running", zap.String("addr", "http://localhost:"+port))
+	http.ListenAndServe(":"+port, handler)
+}
+
+func allowedOrigins() []string {
+	raw := getEnv("ALLOWED_ORIGINS", "http://localhost:3000")
+	parts := strings.Split(raw, ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		origin := strings.TrimSpace(part)
+		if origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
+}
+
+func getEnv(key string, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

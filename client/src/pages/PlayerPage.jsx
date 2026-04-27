@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import Hls from "hls.js";
+import { API_URL } from "../config";
 
 const RESOLUTION_ORDER = ["1080p", "720p", "480p", "360p", "240p", "144p"];
 
@@ -19,7 +20,7 @@ const PlayerPage = () => {
 
     useEffect(() => {
         axios
-            .get(`http://localhost:8000/api/watch/${video_id}`)
+            .get(`${API_URL}/api/watch/${video_id}`)
             .then((res) => {
                 setVideo(res.data.video);
                 setResolutions(res.data.resolutions);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_URL } from "../config";
 
 const VideoCard = ({ video, onClick, onDelete }) => (
     <div className="group relative">
@@ -41,7 +42,7 @@ const WatchPage = () => {
 
     useEffect(() => {
         axios
-            .get("http://localhost:8000/api/videos")
+            .get(`${API_URL}/api/videos`)
             .then((res) => setVideos(res.data.videos))
             .catch(() => setError("Failed to load videos"))
             .finally(() => setLoading(false));
@@ -50,7 +51,7 @@ const WatchPage = () => {
     const handleDelete = (id) => {
         if (!window.confirm("Delete this video? This cannot be undone.")) return;
         axios
-            .delete(`http://localhost:8000/api/videos/${id}`)
+            .delete(`${API_URL}/api/videos/${id}`)
             .then(() => setVideos((prev) => prev.filter((v) => v.id !== id)))
             .catch(() => alert("Failed to delete video"));
     };

@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import { API_URL } from "../config";
 
 const UploadPage = () => {
     const navigate = useNavigate();
@@ -30,7 +31,7 @@ const UploadPage = () => {
         formData.append("video", selectedFile);
 
         try {
-            const response = await axios.post("http://localhost:8000/api/upload", formData, {
+            const response = await axios.post(`${API_URL}/api/upload`, formData, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
             console.log("Upload successful:", response.data);
