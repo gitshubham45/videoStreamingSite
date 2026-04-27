@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 input_file=$1       # Input video file
 resolution=$2       # Target resolution (e.g., 720p)
