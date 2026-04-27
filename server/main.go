@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/gitshubham45/videoStreamingSite/server/database"
 	"github.com/gitshubham45/videoStreamingSite/server/logger"
 	"github.com/gitshubham45/videoStreamingSite/server/queue"
+	"github.com/gitshubham45/videoStreamingSite/server/worker"
 	wshandler "github.com/gitshubham45/videoStreamingSite/server/ws"
 	"github.com/rs/cors"
 	"go.uber.org/zap"
@@ -22,6 +24,7 @@ func main() {
 	database.InitDB()
 	queue.Init()
 	go wshandler.GlobalHub.Run()
+	go worker.StartTranscoder(context.Background())
 
 	os.MkdirAll("./uploads", os.ModePerm)
 	os.MkdirAll("./videos", os.ModePerm)
