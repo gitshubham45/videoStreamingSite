@@ -244,6 +244,7 @@ const WatchView = () => {
     const peerRef = useRef(null);
     const [connected, setConnected] = useState(false);
     const [waiting, setWaiting] = useState(false);
+    const [status, setStatus] = useState("Press Watch to join");
     const [error, setError] = useState(null);
 
     const resetPeer = () => {
@@ -258,6 +259,7 @@ const WatchView = () => {
         setError(null);
         setWaiting(true);
         setConnected(false);
+        setStatus("Opening stream connection...");
         resetPeer();
 
         const ws = new WebSocket(`${SIGNAL_URL}/ws/watch`);
@@ -266,11 +268,13 @@ const WatchView = () => {
         ws.onerror = () => {
             setError("Stream connection lost");
             setWaiting(false);
+            setStatus("Stream connection lost");
         };
 
         ws.onclose = () => {
             setConnected(false);
             setWaiting(false);
+            setStatus("Disconnected");
             resetPeer();
         };
 
@@ -281,24 +285,31 @@ const WatchView = () => {
                 if (message.type === "no-broadcaster") {
                     setWaiting(true);
                     setError(null);
+                    setStatus("Waiting for broadcaster...");
                 }
 
                 if (message.type === "broadcast-ended") {
                     setWaiting(false);
                     setConnected(false);
+                    setStatus("Broadcast ended");
                     resetPeer();
                 }
 
                 if (message.type === "offer") {
+                    setStatus("Connecting WebRTC...");
                     resetPeer();
                     const pc = new RTCPeerConnection(RTC_CONFIG);
                     peerRef.current = pc;
 
                     pc.ontrack = (trackEvent) => {
                         videoRef.current.srcObject = trackEvent.streams[0];
-                        videoRef.current.play().catch(() => {});
+                        videoRef.current.muted = true;
+                        videoRef.current.play().catch(() => {
+                            setStatus("Press play in the video controls");
+                        });
                         setConnected(true);
                         setWaiting(false);
+                        setStatus("Watching live");
                     };
 
                     pc.onicecandidate = (candidateEvent) => {
@@ -311,9 +322,24 @@ const WatchView = () => {
                     };
 
                     pc.onconnectionstatechange = () => {
+                        if (pc.connectionState === "connected") {
+                            setConnected(true);
+                            setWaiting(false);
+                            setStatus("Watching live");
+                        }
                         if (["closed", "failed", "disconnected"].includes(pc.connectionState)) {
                             setConnected(false);
                             setWaiting(false);
+                            setStatus(`WebRTC ${pc.connectionState}`);
+                        }
+                    };
+
+                    pc.oniceconnectionstatechange = () => {
+                        if (pc.iceConnectionState === "checking") {
+                            setStatus("Finding network path...");
+                        }
+                        if (["failed", "disconnected", "closed"].includes(pc.iceConnectionState)) {
+                            setStatus(`ICE ${pc.iceConnectionState}`);
                         }
                     };
 
@@ -331,6 +357,7 @@ const WatchView = () => {
                 }
             } catch (err) {
                 setWaiting(false);
+                setStatus("Viewer signaling failed");
                 setError(`Viewer signaling failed: ${err.message}`);
             }
         };
@@ -342,6 +369,7 @@ const WatchView = () => {
         resetPeer();
         setConnected(false);
         setWaiting(false);
+        setStatus("Press Watch to join");
     };
 
     useEffect(() => () => {
@@ -361,11 +389,12 @@ const WatchView = () => {
                     playsInline
                     controls
                     autoPlay
+                    muted
                     className="w-full h-full object-contain"
                 />
                 {!connected && (
                     <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm pointer-events-none">
-                        {waiting ? "Connecting..." : "Press Watch to join"}
+                        {waiting ? status : "Press Watch to join"}
                     </div>
                 )}
                 {connected && (
